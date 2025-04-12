@@ -7,8 +7,8 @@ English: This application calculates thermodynamic properties of humid air based
 Português: Esta aplicação calcula as propriedades termodinâmicas do ar úmido com base em diferentes métodos de entrada.
 
 ## References / Referências:
-ASHRAE Handbook - Fundamentals
-Engineering Thermodynamics - Moran & Shapiro
+ASHRAE Handbook - Fundamentals \n Engineering Thermodynamics - Moran & Shapiro
+
 Psychrometric Analysis - Stoecker & Jones
 
 ## About:

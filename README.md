@@ -8,9 +8,7 @@ Português: Esta aplicação calcula as propriedades termodinâmicas do ar úmid
 
 ## References / Referências:
 ASHRAE Handbook - Fundamentals
-
 Engineering Thermodynamics - Moran & Shapiro
-
 Psychrometric Analysis - Stoecker & Jones
 
 ## About:

@@ -11,6 +11,7 @@ from psychrometrics import (
 from utils import display_results, input_with_units
 from psychrometric_chart import plot_psychrometric_chart
 from geo_location import get_location_info
+from user_preferences import init_preferences, render_preferences_ui, get_current_profile_name
 
 # Set page config
 st.set_page_config(
@@ -19,245 +20,54 @@ st.set_page_config(
     layout="wide"
 )
 
+# Initialize user preferences
+init_preferences()
+
 # Application title and description
 st.title("Humid Air Thermodynamic Calculator")
+
+# Show current profile if one is active
+current_profile = get_current_profile_name()
+if current_profile:
+    st.success(f"Perfil ativo / Active profile: **{current_profile}**")
+
 st.markdown("""
 **English**: This application calculates thermodynamic properties of humid air based on different input methods.  
 **Português**: Esta aplicação calcula as propriedades termodinâmicas do ar úmido com base em diferentes métodos de entrada.
 """)
 
 # Main content - Location and altitude input
-st.header("Location / Localização")
+st.header("Altitude & Pressão Atmosférica / Altitude & Atmospheric Pressure")
 
-# Initialize session state for location data
-if 'location_info' not in st.session_state:
-    st.session_state.location_info = None
+# Initialize session states
 if 'altitude' not in st.session_state:
-    st.session_state.altitude = 0.0
-if 'using_geolocation' not in st.session_state:
-    st.session_state.using_geolocation = False
-if 'manual_location' not in st.session_state:
-    st.session_state.manual_location = False
+    st.session_state.altitude = 0.0  # Default altitude (sea level)
+if 'know_altitude' not in st.session_state:
+    st.session_state.know_altitude = None
 if 'p_atm' not in st.session_state:
     st.session_state.p_atm = 101.325  # Default atmospheric pressure (kPa at sea level)
+if 'manual_location_data' not in st.session_state:
+    st.session_state.manual_location_data = {
+        'city': 'Viçosa',
+        'region': 'Minas Gerais',
+        'country': 'Brazil',
+        'latitude': -20.7546,
+        'longitude': -42.8825,
+        'elevation': 648.0  # Approximate elevation for Viçosa in meters
+    }
 
-# Geolocation option
-use_geolocation = st.checkbox(
-    "Use geolocation for automatic pressure calculation / Usar geolocalização para cálculo automático de pressão",
-    value=st.session_state.using_geolocation
+# First question: Do you know the local altitude?
+know_altitude = st.radio(
+    "Você sabe a altitude local? / Do you know the local altitude?",
+    options=["Sim / Yes", "Não / No"],
+    index=0 if st.session_state.know_altitude else 1
 )
 
-# Update the using_geolocation flag in session_state
-if use_geolocation != st.session_state.using_geolocation:
-    st.session_state.using_geolocation = use_geolocation
-    if use_geolocation and st.session_state.location_info is None:
-        # Only fetch location if the checkbox is checked and we don't have location info yet
-        with st.spinner("Obtaining location data... / Obtendo dados de localização..."):
-            st.session_state.location_info = get_location_info()
+# Update session state
+st.session_state.know_altitude = (know_altitude == "Sim / Yes")
 
-# Add option for manual location input when geolocation is enabled
-if use_geolocation:
-    # Add tabs for auto vs manual location
-    geo_tab1, geo_tab2 = st.tabs(["Automatic Detection / Detecção Automática", "Manual Location / Localização Manual"])
-    
-    with geo_tab1:
-        # Add a refresh button for location data
-        if st.button("Refresh Location Data / Atualizar Dados de Localização"):
-            with st.spinner("Refreshing location data... / Atualizando dados de localização..."):
-                st.session_state.location_info = get_location_info()
-                st.session_state.manual_location = False
-                st.rerun()
-        
-        # Display automatic location info if available
-        if st.session_state.location_info and not st.session_state.get('manual_location', False):
-            location = st.session_state.location_info
-            
-            # Display location information
-            st.success(f"Location detected / Localização detectada: {location.get('city', 'Unknown')}, {location.get('region', '')}, {location.get('country', '')}")
-            
-            # Display a map with the detected location if we have coordinates
-            if 'latitude' in location and 'longitude' in location:
-                try:
-                    # Create a single-element map with the detected location
-                    map_data = {
-                        'latitude': [float(location['latitude'])],
-                        'longitude': [float(location['longitude'])]
-                    }
-                    st.map(map_data, zoom=10)
-                except Exception as e:
-                    st.warning(f"Could not display location map: {str(e)}")
-            
-            # If we have elevation data, use it for altitude
-            if 'elevation' in location:
-                altitude = location['elevation']
-                st.info(f"Estimated elevation / Altitude estimada: {altitude:.1f} meters")
-                st.session_state.altitude = altitude
-                
-                # If we have atmospheric pressure directly, use it
-                if 'atmospheric_pressure' in location:
-                    p_atm = location['atmospheric_pressure']
-                    st.session_state.p_atm = p_atm
-                else:
-                    # Calculate atmospheric pressure from elevation
-                    p_atm = calculate_atmospheric_pressure(altitude)
-                    st.session_state.p_atm = p_atm
-            else:
-                # If no elevation data, show warning
-                st.warning("Elevation data not available. / Dados de elevação não disponíveis.")
-                st.info("Try using manual location input instead. / Tente usar a entrada manual de localização.")
-        else:
-            # If geolocation failed, show message
-            st.error("Could not automatically detect location. Please try manual input. / Não foi possível detectar a localização automaticamente. Por favor, tente a entrada manual.")
-    
-    with geo_tab2:
-        # Manual location input
-        st.subheader("Enter Location Manually / Inserir Localização Manualmente")
-        
-        # Initialize session state for manual location if not already present
-        if 'manual_location_data' not in st.session_state:
-            st.session_state.manual_location_data = {
-                'city': 'Viçosa',
-                'region': 'Minas Gerais',
-                'country': 'Brazil',
-                'latitude': -20.7546,
-                'longitude': -42.8825,
-                'elevation': 648.0  # Approximate elevation for Viçosa in meters
-            }
-        
-        # City, Region, Country in a single row
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            city = st.text_input("City / Cidade", 
-                                value=st.session_state.manual_location_data.get('city', 'Viçosa'),
-                                key="city_input")
-        with col2:
-            region = st.text_input("State / Estado",
-                                 value=st.session_state.manual_location_data.get('region', 'Minas Gerais'),
-                                 key="region_input")
-        with col3:
-            country = st.text_input("Country / País",
-                                  value=st.session_state.manual_location_data.get('country', 'Brazil'),
-                                  key="country_input")
-        
-        # Latitude, Longitude in a single row
-        col1, col2 = st.columns(2)
-        with col1:
-            latitude = st.number_input("Latitude",
-                                    value=st.session_state.manual_location_data.get('latitude', -20.7546),
-                                    format="%.6f",
-                                    key="latitude_input")
-        with col2:
-            longitude = st.number_input("Longitude",
-                                     value=st.session_state.manual_location_data.get('longitude', -42.8825),
-                                     format="%.6f",
-                                     key="longitude_input")
-        
-        # Elevation (can be overridden)
-        elevation = st.number_input("Elevation (m) / Altitude (m)",
-                                  value=st.session_state.manual_location_data.get('elevation', 648.0),
-                                  min_value=0.0,
-                                  max_value=5000.0,
-                                  step=1.0,
-                                  key="elevation_input")
-        
-        # Update button
-        if st.button("Use this location / Usar esta localização"):
-            # Update the manual location data
-            st.session_state.manual_location_data = {
-                'city': city,
-                'region': region,
-                'country': country,
-                'latitude': latitude,
-                'longitude': longitude,
-                'elevation': elevation
-            }
-            
-            # Get location info with the manual data
-            with st.spinner("Processing location... / Processando localização..."):
-                st.session_state.location_info = get_location_info(st.session_state.manual_location_data)
-                st.session_state.manual_location = True
-                st.rerun()
-        
-        # Show the current manual location on a map
-        try:
-            map_data = {
-                'latitude': [st.session_state.manual_location_data['latitude']],
-                'longitude': [st.session_state.manual_location_data['longitude']]
-            }
-            st.map(map_data, zoom=10)
-        except Exception as e:
-            st.warning(f"Could not display map: {str(e)}")
-        
-        # Display the manually entered location if it's being used
-        if st.session_state.get('manual_location', False) and st.session_state.location_info:
-            location = st.session_state.location_info
-            
-            # If we have elevation data, display it and use it for altitude
-            if 'elevation' in location:
-                altitude = location['elevation']
-                st.info(f"Using elevation: {altitude:.1f} meters")
-                st.session_state.altitude = altitude
-                
-                # Calculate atmospheric pressure from elevation
-                p_atm = calculate_atmospheric_pressure(altitude)
-                st.session_state.p_atm = p_atm
-            else:
-                st.warning("Could not determine elevation. Using manual input.")
-                
-                # Use manually entered elevation
-                altitude = elevation
-                st.session_state.altitude = altitude
-                
-                # Calculate atmospheric pressure from elevation
-                p_atm = calculate_atmospheric_pressure(altitude)
-                st.session_state.p_atm = p_atm
-    
-    # If we have valid location info from either method, use it
-    if st.session_state.location_info:
-        location = st.session_state.location_info
-        
-        # If location has elevation, use it for altitude
-        if 'elevation' in location:
-            altitude = location['elevation']
-            # Use atmospheric pressure from location if available, otherwise calculate
-            if 'atmospheric_pressure' in location:
-                p_atm = location['atmospheric_pressure']
-            else:
-                p_atm = calculate_atmospheric_pressure(altitude)
-        else:
-            # No elevation, fall back to manual input
-            st.warning("No elevation data available, using manual input for atmospheric pressure calculation.")
-            altitude = st.number_input(
-                "Altitude (m)", 
-                min_value=0.0, 
-                max_value=5000.0, 
-                value=st.session_state.altitude, 
-                step=10.0,
-                help="Enter altitude in meters to calculate atmospheric pressure / Insira a altitude em metros para calcular a pressão atmosférica",
-                key="altitude_input_geo_fallback"
-            )
-            p_atm = calculate_atmospheric_pressure(altitude)
-            
-        # Store in session state
-        st.session_state.altitude = altitude
-        st.session_state.p_atm = p_atm
-    else:
-        # No location info at all, allow manual entry of altitude directly
-        st.error("No location information available. Please enter altitude manually. / Nenhuma informação de localização disponível. Por favor, insira a altitude manualmente.")
-        altitude = st.number_input(
-            "Altitude (m)", 
-            min_value=0.0, 
-            max_value=5000.0, 
-            value=st.session_state.altitude, 
-            step=10.0,
-            help="Enter altitude in meters to calculate atmospheric pressure / Insira a altitude em metros para calcular a pressão atmosférica",
-            key="altitude_input_geo_failed"
-        )
-        # Calculate atmospheric pressure using the altitude value
-        p_atm = calculate_atmospheric_pressure(altitude)
-        st.session_state.p_atm = p_atm
-else:
-    # Manual altitude input if geolocation is not used
+if st.session_state.know_altitude:
+    # If the user knows the altitude, show direct input
     altitude = st.number_input(
         "Altitude (m)", 
         min_value=0.0, 
@@ -265,12 +75,93 @@ else:
         value=st.session_state.altitude, 
         step=10.0,
         help="Enter altitude in meters to calculate atmospheric pressure / Insira a altitude em metros para calcular a pressão atmosférica",
-        key="altitude_input"
+        key="altitude_input_direct"
     )
     # Update session state
     st.session_state.altitude = altitude
     
     # Calculate atmospheric pressure using the altitude value
+    p_atm = calculate_atmospheric_pressure(altitude)
+    st.session_state.p_atm = p_atm
+    
+else:
+    # If the user doesn't know the altitude, show location input
+    st.subheader("Inserir Localização Manualmente / Enter Location Manually")
+    st.info("Insira sua localização para estimar a altitude / Enter your location to estimate altitude")
+    
+    # City, Region, Country in a single row
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        city = st.text_input("Cidade / City", 
+                            value=st.session_state.manual_location_data.get('city', 'Viçosa'),
+                            key="city_input")
+    with col2:
+        region = st.text_input("Estado / State",
+                             value=st.session_state.manual_location_data.get('region', 'Minas Gerais'),
+                             key="region_input")
+    with col3:
+        country = st.text_input("País / Country",
+                              value=st.session_state.manual_location_data.get('country', 'Brazil'),
+                              key="country_input")
+    
+    # Latitude, Longitude in a single row
+    col1, col2 = st.columns(2)
+    with col1:
+        latitude = st.number_input("Latitude",
+                                value=st.session_state.manual_location_data.get('latitude', -20.7546),
+                                format="%.6f",
+                                key="latitude_input")
+    with col2:
+        longitude = st.number_input("Longitude",
+                                 value=st.session_state.manual_location_data.get('longitude', -42.8825),
+                                 format="%.6f",
+                                 key="longitude_input")
+    
+    # Custom elevation input
+    elevation = st.number_input("Altitude (m) / Elevation (m)",
+                              value=st.session_state.manual_location_data.get('elevation', 648.0),
+                              min_value=0.0,
+                              max_value=5000.0,
+                              step=1.0,
+                              key="elevation_input")
+    
+    # Update button
+    if st.button("Usar esta localização / Use this location"):
+        # Update the manual location data
+        st.session_state.manual_location_data = {
+            'city': city,
+            'region': region,
+            'country': country,
+            'latitude': latitude,
+            'longitude': longitude,
+            'elevation': elevation
+        }
+        
+        # Set altitude directly from manual entry
+        st.session_state.altitude = elevation
+        
+        # Calculate atmospheric pressure
+        p_atm = calculate_atmospheric_pressure(elevation)
+        st.session_state.p_atm = p_atm
+        
+        st.success(f"Localização atualizada: {city}, {region}, {country} / Location updated")
+        st.rerun()
+    
+    # Show the current manual location on a map
+    try:
+        map_data = {
+            'latitude': [st.session_state.manual_location_data['latitude']],
+            'longitude': [st.session_state.manual_location_data['longitude']]
+        }
+        st.map(map_data, zoom=10)
+    except Exception as e:
+        st.warning(f"Não foi possível exibir o mapa: {str(e)} / Could not display map")
+    
+    # Use the elevation from manual location data
+    altitude = st.session_state.manual_location_data['elevation']
+    st.session_state.altitude = altitude
+    
+    # Calculate atmospheric pressure
     p_atm = calculate_atmospheric_pressure(altitude)
     st.session_state.p_atm = p_atm
 
@@ -375,6 +266,14 @@ with tab3:
                 display_results(properties)
             except Exception as e:
                 st.error(f"Calculation error: {str(e)}")
+
+# User preferences section
+st.markdown("---")
+st.header("🔧 Preferências do Usuário / User Preferences")
+
+# Show the user preferences UI in an expander for cleaner interface
+with st.expander("Abrir Gerenciador de Perfis / Open Profile Manager"):
+    render_preferences_ui()
 
 # Footer with information
 st.markdown("---")
